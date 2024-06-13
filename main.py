@@ -73,14 +73,14 @@ def check_epsilons(gmm, n_samples, axes_to_keep):
 
     print("E_x[Dkl(P[(L|X) || (L|Xs)])] = ", edkl)
 
+    return edkl
+
 def generate_combinations(nums):
     for i in range(1, len(nums) + 1):
         for combination in itertools.combinations(nums, i):
             yield combination
 
 def main():
-    np_rng = 0
-    jax_rng = jax.random.PRNGKey(np_rng)
 
     n_gmm_components = 3
     covariance_type = 'diag'
@@ -90,16 +90,76 @@ def main():
     data = data_df[[c for c in data_df.columns[:-1]]].to_numpy(dtype=np.float32)
     y = data_df['species'].map({"setosa": 0, "versicolor": 1, "virginica": 2}).values
 
-    gmm = GaussianMixture(n_components=n_gmm_components, random_state=np_rng,
+    gmm = GaussianMixture(n_components=n_gmm_components, random_state=0,
                           covariance_type=covariance_type, init_params=init_params).fit(data)
     y_hat = gmm.predict(data)
 
+    log_probs = jnp.log(gmm.predict_proba(data))
+    probs = gmm.predict_proba(data)
+    probs[jnp.isinf(log_probs)] = 0.0
+    log_probs = log_probs.at[jnp.isinf(log_probs)].set(0.0)
+    entropy_l_given_x = -(probs*log_probs).sum(axis=1).mean() / jnp.log(2)
+    print("Entropy of P[L|X]: ", entropy_l_given_x)
 
     for axes_to_keep in generate_combinations(list(range(data.shape[1]))):
         print(axes_to_keep)
         check_epsilons(gmm, n_samples=len(data), axes_to_keep=axes_to_keep)
-    visualize(data, y, y_hat)
 
+    redundancy_error = 0
+    for axes_to_keep in [[1,2,3], [0,2,3], [0,1,3], [0,1,2]]:
+        redundancy_error += check_epsilons(gmm, n_samples=len(data), axes_to_keep=axes_to_keep)
+    print("\nSum of redundancy errors for weak invar: ", redundancy_error)
+
+    print("\nIsomorphism bound: ", redundancy_error + entropy_l_given_x*2)
+
+    #visualize(data, y, y_hat)
+
+
+    print('\n\n=================\n')
+
+    gmm2 = GaussianMixture(n_components=n_gmm_components, random_state=1,
+                          covariance_type=covariance_type, init_params=init_params).fit(data)
+    y_hat_2 = gmm2.predict(data)
+
+    log_probs_2 = jnp.log(gmm2.predict_proba(data))
+    probs_2 = gmm2.predict_proba(data)
+    probs_2[jnp.isinf(log_probs_2)] = 0.0
+    log_probs_2 = log_probs_2.at[jnp.isinf(log_probs_2)].set(0.0)
+    entropy_l_given_x_2 = -(probs_2 * log_probs_2).sum(axis=1).mean() / jnp.log(2)
+    print("Entropy of P[L|X]: ", entropy_l_given_x_2)
+
+    for axes_to_keep in generate_combinations(list(range(data.shape[1]))):
+        print(axes_to_keep)
+        check_epsilons(gmm2, n_samples=len(data), axes_to_keep=axes_to_keep)
+
+    redundancy_error = 0
+    for axes_to_keep in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]]:
+        redundancy_error += check_epsilons(gmm2, n_samples=len(data), axes_to_keep=axes_to_keep)
+    print("\nSum of redundancy errors for weak invar: ", redundancy_error)
+
+    print("\nIsomorphism bound: ", redundancy_error + entropy_l_given_x_2 * 2)
+
+    print("\n\n==============\n")
+
+    p_L_X_alice = gmm.predict_proba(data)
+    p_L_X_bob = gmm2.predict_proba(data)
+    p_La_Lb = np.einsum("xa,xb->xab", p_L_X_alice, p_L_X_bob).mean(axis=0)
+    p_La_given_lb = p_La_Lb/p_La_Lb.sum(axis=0)
+    p_Lb_given_la = p_La_Lb.T / p_La_Lb.T.sum(axis=0)
+
+    entropy_la_given_lb = -(p_La_Lb * jnp.log(p_La_given_lb)).sum() / jnp.log(2)
+    entropy_lb_given_la = -(p_La_Lb.T * jnp.log(p_Lb_given_la)).sum() / jnp.log(2)
+
+    print("Entropy L1 | L2: ", entropy_la_given_lb)
+    print("Entropy L2 | L1: ", entropy_lb_given_la)
+
+    p_l1 = gmm.predict_proba(data).mean(axis=0)
+    p_l2 = gmm2.predict_proba(data).mean(axis=0)
+
+    entropy_l1 = -(p_l1 * jnp.log(p_l1)).sum() / jnp.log(2)
+    entropy_l2 = -(p_l2 * jnp.log(p_l2)).sum() / jnp.log(2)
+    print("Entropy L1: ", entropy_l1)
+    print("Entropy L2: ", entropy_l2)
 
 if __name__ == "__main__":
     main()
