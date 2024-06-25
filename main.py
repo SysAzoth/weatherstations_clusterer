@@ -27,6 +27,12 @@ from iris_mog.dag_kl import dag_kl
 from iris_mog.better_graphs import process_graph
 
 # the above stuff is likely boilerplate but I have no idea what precisely it does
+    #Jay> more or less, I believe. it's importing a bunch of libraries that get called later on
+    #> I *suspect* the 'import os' is handling some minor aspects of cross-compatibility, but
+    #> that's deep magic afaic
+    #> os.environ
+    #>    A mapping object where keys and values are strings that represent the process environment. For example, environ['HOME'] is the pathname of your home directory (on some platforms), and is equivalent to getenv("HOME") in C.
+    #> OK so if your computer is a cpu and running X64 and most are, that should be fine
 
 def visualize(data, y, y_hat):
     pca = PCA(n_components=2)
@@ -83,12 +89,14 @@ def generate_combinations(nums):
 def main():
 
     n_gmm_components = 6  # original was 3 (species of flower); NCEI divides weather stations ~geographically into 6
+                                #Jay> curious what happens when testing multiple values here: *is* the geographic distribution natural? are there more natural groupings in higher or lower dimensionalities? 
     covariance_type = 'diag'
     init_params = 'random' # default: 'kmeans'
 
     data_df = pd.read_csv("weatherstations.csv")  # I will have to add this dataset in
     data = data_df[[c for c in data_df.columns[:-1]]].to_numpy(dtype=np.float32)
     y = data_df['species'].map({"setosa": 0, "versicolor": 1, "virginica": 2}).values  # this line is almost the right shape but wrong as is
+                                                                                            #Jay> Yep
 
     gmm = GaussianMixture(n_components=n_gmm_components, random_state=0,
                           covariance_type=covariance_type, init_params=init_params).fit(data)
@@ -107,6 +115,7 @@ def main():
 
     redundancy_error = 0
     for axes_to_keep in [[1,2,3], [0,2,3], [0,1,3], [0,1,2]]:  # this is the part about being able to drop features. I'll need to add more or refactor this part.
+                                                                    #Jay> there should be a Combination method to build this list(lists) iterated over here
         redundancy_error += check_epsilons(gmm, n_samples=len(data), axes_to_keep=axes_to_keep)
     print("\nSum of redundancy errors for weak invar: ", redundancy_error)
 
@@ -134,12 +143,13 @@ def main():
 
     redundancy_error = 0
     for axes_to_keep in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]]: # this is another part about being able to drop features. I'll need to add more or refactor this part.
+                                                                            #Jay> likewise
         redundancy_error += check_epsilons(gmm2, n_samples=len(data), axes_to_keep=axes_to_keep)
     print("\nSum of redundancy errors for weak invar: ", redundancy_error)
 
     print("\nIsomorphism bound: ", redundancy_error + entropy_l_given_x_2 * 2)
 
-    print("\n\n==============\n")
+    print("\n\n==============\n") 
 
     p_L_X_alice = gmm.predict_proba(data)
     p_L_X_bob = gmm2.predict_proba(data)
